@@ -1,14 +1,14 @@
-# Day 10 Reliability Final Report
+# Báo cáo cuối: Day 10 Reliability
 
-## 1. Architecture Summary
+## 1. Tóm tắt kiến trúc
 
 ```text
-User Request
+Yêu cầu người dùng
     |
     v
 [ReliabilityGateway]
     |
-    +--> [ResponseCache / SharedRedisCache] -- hit --> return cached response
+    +--> [ResponseCache / SharedRedisCache] -- hit --> trả response từ cache
     |
     v miss
 [CircuitBreaker: primary] -- closed/half-open --> primary provider
@@ -20,33 +20,33 @@ User Request
 [Static fallback response]
 ```
 
-The gateway checks cache first to reduce latency and cost. On a miss, each provider call is protected by a circuit breaker. If the primary provider fails or its circuit is open, traffic falls back to the backup provider. If all providers fail, the gateway returns a static degraded response.
+Gateway kiểm tra cache trước để giảm latency và chi phí mô phỏng. Nếu cache miss, mỗi lần gọi provider đều đi qua circuit breaker. Khi primary provider lỗi hoặc circuit đang mở, request được chuyển sang backup provider. Nếu tất cả provider đều lỗi, gateway trả về một response tĩnh ở trạng thái degraded thay vì để hệ thống crash.
 
-## 2. Configuration
+## 2. Cấu hình
 
-| Setting | Value | Reason |
+| Thiết lập | Giá trị | Lý do |
 |---|---:|---|
-| failure_threshold | 3 | Opens the circuit after repeated failures while tolerating occasional provider noise. |
-| reset_timeout_seconds | 2 | Lets the provider cool down before a half-open probe. |
-| success_threshold | 1 | One successful probe is enough for this local fake-provider lab. |
-| cache backend | memory | Default run uses local memory; Redis backend is tested separately. |
-| cache TTL | 300 | Keeps repeated lab queries reusable without keeping stale data too long. |
-| similarity_threshold | 0.92 | Conservative threshold to reduce false semantic hits. |
-| load_test requests | 100 per scenario | Three scenarios produce 300 total requests. |
+| failure_threshold | 3 | Mở circuit sau nhiều lỗi liên tiếp, nhưng vẫn chịu được lỗi provider ngẫu nhiên. |
+| reset_timeout_seconds | 2 | Cho provider thời gian hồi phục trước khi thử probe ở trạng thái half-open. |
+| success_threshold | 1 | Một probe thành công là đủ cho lab local dùng fake provider. |
+| cache backend | memory | Lần chạy mặc định dùng in-memory cache; Redis backend được kiểm thử riêng. |
+| cache TTL | 300 | Giữ các query lặp lại đủ lâu để tái sử dụng, nhưng không giữ cache quá lâu. |
+| similarity_threshold | 0.92 | Ngưỡng tương đồng tương đối chặt để giảm semantic false hit. |
+| load_test requests | 100 mỗi scenario | 3 scenario tạo tổng cộng 300 request mô phỏng. |
 
-## 3. SLO Definitions
+## 3. Định nghĩa SLO
 
-| SLI | SLO Target | Actual Value | Met? |
+| SLI | Mục tiêu SLO | Giá trị thực tế | Đạt? |
 |---|---|---:|---|
-| Availability | >= 99% | 99.00% | Yes |
-| Latency P95 | < 2500 ms | 318.23 ms | Yes |
-| Fallback success rate | >= 95% | 95.59% | Yes |
-| Cache hit rate | >= 10% | 63.33% | Yes |
-| Recovery time | < 5000 ms | N/A | No recovery event recorded in cached run |
+| Availability | >= 99% | 99.00% | Có |
+| Latency P95 | < 2500 ms | 318.23 ms | Có |
+| Fallback success rate | >= 95% | 95.59% | Có |
+| Cache hit rate | >= 10% | 63.33% | Có |
+| Recovery time | < 5000 ms | N/A | Không có recovery event trong cached run |
 
 ## 4. Metrics
 
-| Metric | Value |
+| Metric | Giá trị |
 |---|---:|
 | total_requests | 300 |
 | availability | 0.99 |
@@ -61,9 +61,9 @@ The gateway checks cache first to reduce latency and cost. On a miss, each provi
 | estimated_cost | 0.046704 |
 | estimated_cost_saved | 0.19 |
 
-## 5. Cache Comparison
+## 5. So sánh khi bật và tắt cache
 
-| Metric | Without Cache | With Cache | Delta |
+| Metric | Không dùng cache | Có dùng cache | Chênh lệch |
 |---|---:|---:|---:|
 | availability | 0.9733 | 0.99 | +0.0167 |
 | latency_p50_ms | 275.48 | 271.6 | -3.88 ms |
@@ -72,15 +72,15 @@ The gateway checks cache first to reduce latency and cost. On a miss, each provi
 | cache_hit_rate | 0.0 | 0.6333 | +0.6333 |
 | circuit_open_count | 22 | 8 | -14 |
 
-Cache significantly reduced provider calls and estimated cost. The P95 latency difference is small because cached responses are mixed with provider calls, and provider latency dominates non-cache requests.
+Cache làm giảm đáng kể số lần gọi provider và chi phí mô phỏng. Chênh lệch P95 latency không quá lớn vì cached responses được trộn với provider calls, và latency của provider vẫn chi phối các request không hit cache.
 
-## 6. Redis Shared Cache
+## 6. Redis shared cache
 
-In-memory cache is insufficient for production multi-instance deployments because each gateway process has its own local cache. A user routed to another instance would miss entries already computed elsewhere.
+In-memory cache không đủ cho triển khai production nhiều instance, vì mỗi gateway process có cache riêng. Nếu người dùng được route sang instance khác, instance đó sẽ không thấy response đã được tính ở instance trước.
 
-`SharedRedisCache` solves this by storing cache entries in Redis hashes with TTL. Multiple gateway instances using the same Redis URL and prefix can share responses.
+`SharedRedisCache` giải quyết vấn đề này bằng cách lưu cache entry trong Redis hash và đặt TTL. Nhiều gateway instance dùng chung Redis URL và prefix có thể chia sẻ response với nhau.
 
-Evidence of shared state:
+Bằng chứng shared state:
 
 ```text
 instance_2_value=shared report response
@@ -88,35 +88,35 @@ score=1.0
 keys=['rl:evidence:853c11f9f307']
 ```
 
-Redis test result:
+Kết quả test Redis:
 
 ```text
 pytest tests/test_redis_cache.py -q
 6 passed
 ```
 
-## 7. Chaos Scenarios
+## 7. Chaos scenarios
 
-| Scenario | Expected Behavior | Observed Behavior | Pass/Fail |
+| Scenario | Hành vi kỳ vọng | Hành vi quan sát được | Kết quả |
 |---|---|---|---|
-| primary_timeout_100 | Primary fails; traffic falls back to backup or static fallback. | Scenario completed successfully. | Pass |
-| primary_flaky_50 | Circuit opens during repeated primary failures; backup handles many requests. | Scenario completed successfully. | Pass |
-| all_healthy | Primary should handle most non-cached requests. | Scenario completed successfully. | Pass |
+| primary_timeout_100 | Primary luôn lỗi; traffic fallback sang backup hoặc static fallback. | Scenario hoàn thành thành công. | Pass |
+| primary_flaky_50 | Circuit mở khi primary lỗi lặp lại; backup xử lý nhiều request. | Scenario hoàn thành thành công. | Pass |
+| all_healthy | Primary xử lý phần lớn request không hit cache. | Scenario hoàn thành thành công. | Pass |
 
-## 8. Failure Analysis
+## 8. Phân tích điểm yếu còn lại
 
-One remaining weakness is that circuit breaker state is still process-local. In a real multi-instance deployment, one gateway instance could open its circuit while another keeps sending traffic to the unhealthy provider.
+Một điểm yếu còn lại là trạng thái circuit breaker vẫn nằm trong từng process. Trong triển khai nhiều instance thực tế, một gateway instance có thể đã mở circuit, nhưng instance khác vẫn tiếp tục gửi traffic tới provider đang lỗi.
 
-Before production, I would store circuit breaker counters and state in Redis with atomic operations, or use a shared health signal per provider. I would also add per-route SLO alerts and record fallback reasons per provider for easier incident debugging.
+Trước khi đưa vào production, tôi sẽ lưu counter và trạng thái circuit breaker trong Redis bằng atomic operations, hoặc dùng một health signal chung theo từng provider. Tôi cũng sẽ thêm cảnh báo SLO theo từng route và ghi lại fallback reason theo provider để debug incident dễ hơn.
 
-## 9. Final Validation
+## 9. Kiểm tra cuối
 
 ```text
 pytest -q
 35 passed, 7 xpassed
 ```
 
-Generated artifacts:
+Artifacts đã tạo:
 
 - `reports/metrics.json`
 - `reports/metrics_no_cache.json`
